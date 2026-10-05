@@ -6,9 +6,6 @@ import java.io.File
 import java.io.PrintStream
 import java.net.URLClassLoader
 
-/**
- * Converts compiled .class files into DEX using R8/D8 loaded in-process.
- */
 object Dexer {
 
     fun dex(
@@ -33,9 +30,10 @@ object Dexer {
 
         BuildLogger.log("D8: dexing ${classFiles.size} class files")
 
+        val parent = Dexer::class.java.classLoader
         val loader = URLClassLoader(
             arrayOf(r8Jar.toURI().toURL()),
-            ClassLoader.getSystemClassLoader().parent
+            parent
         )
 
         val d8Class = Class.forName("com.android.tools.r8.D8", true, loader)

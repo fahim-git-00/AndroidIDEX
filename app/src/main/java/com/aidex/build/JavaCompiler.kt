@@ -6,10 +6,6 @@ import java.io.File
 import java.io.PrintStream
 import java.net.URLClassLoader
 
-/**
- * In-process ECJ (Eclipse Compiler for Java) invocation.
- * Loads ecj.jar via URLClassLoader and calls the Main entry point reflectively.
- */
 object JavaCompiler {
 
     fun compile(
@@ -24,9 +20,10 @@ object JavaCompiler {
         val ecjJar = File(tc, "ecj.jar")
         require(ecjJar.exists()) { "ecj.jar missing — run toolchain download." }
 
+        val parent = JavaCompiler::class.java.classLoader
         val loader = URLClassLoader(
             arrayOf(ecjJar.toURI().toURL()),
-            ClassLoader.getSystemClassLoader().parent
+            parent
         )
 
         val javaFiles = srcDirs
@@ -41,7 +38,9 @@ object JavaCompiler {
 
         BuildLogger.log("Java: compiling ${javaFiles.size} files")
 
-        val mainClass = Class.forName("org.eclipse.jdt.internal.compiler.batch.Main", true, loader)
+        val mainClass = Class.forName(
+            "org.eclipse.jdt.internal.compiler.batch.Main", true, loader
+        )
         val main = mainClass.getDeclaredConstructor().newInstance()
 
         val args = mutableListOf<String>()
