@@ -1,7 +1,7 @@
 # Gradle
 .gradle/
-build/
-app/build/
+/build/
+/app/build/
 local.properties
 
 # IDE

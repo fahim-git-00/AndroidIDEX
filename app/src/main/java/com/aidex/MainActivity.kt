@@ -1,17 +1,27 @@
 package com.aidex
 
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
 import androidx.lifecycle.lifecycleScope
+import com.aidex.build.BuildService
+import com.aidex.build.ToolchainManager
 import com.aidex.databinding.ActivityMainBinding
 import com.aidex.editor.Language
 import com.aidex.fs.FileTreeAdapter
 import com.aidex.fs.ProjectManager
+import com.aidex.project.ProjectActions
+import com.aidex.ui.BuildDialog
+import com.aidex.ui.NewProjectDialog
 import com.google.android.material.tabs.TabLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -25,6 +35,20 @@ class MainActivity : AppCompatActivity() {
 
     private val openFiles = LinkedHashMap<File, String>()
     private var currentFile: File? = null
+    private var currentProjectRoot: File? = null
+
+    private val openFolderLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            val file = uriToFile(uri)
+            if (file != null && file.isDirectory) {
+                loadProject(file)
+            } else {
+                toast("Could not resolve folder path")
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,10 +62,6 @@ class MainActivity : AppCompatActivity() {
 
         adapter = FileTreeAdapter(::openFile)
         binding.fileTree.adapter = adapter
-
-        val root = ProjectManager.ensureSampleProject(this)
-        adapter.setRoot(root)
-        binding.projectPath.text = root.absolutePath
 
         binding.toolbar.setNavigationOnClickListener {
             binding.drawer.openDrawer(GravityCompat.START)
@@ -57,6 +77,12 @@ class MainActivity : AppCompatActivity() {
 
         binding.saveButton.setOnClickListener { saveCurrent() }
         binding.copyLogButton.setOnClickListener { copyCurrentToClipboard() }
+        binding.newProjectBtn.setOnClickListener { promptNewProject() }
+        binding.openProjectBtn.setOnClickListener { openFolderLauncher.launch(null) }
+        binding.buildBtn.setOnClickListener { promptBuild() }
+
+        // Ensure toolchain is present before first build.
+        ensureToolchainThenLoadDefault()
     }
 
     @Deprecated("Deprecated in Java")
@@ -68,6 +94,128 @@ class MainActivity : AppCompatActivity() {
             super.onBackPressed()
         }
     }
+
+    // ─── TOOLCHAIN ────────────────────────────────────────────────────────
+
+    private fun ensureToolchainThenLoadDefault() {
+        if (ToolchainManager.isReady(this)) {
+            loadDefaultProject()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("First-time setup")
+            .setMessage(
+                "AIDEX needs to download ~130 MB of compiler toolchain " +
+                "(Kotlin, ECJ, R8, aapt2, android.jar). " +
+                "Connect to Wi-Fi and tap Download."
+            )
+            .setCancelable(false)
+            .setPositiveButton("Download") { _, _ -> downloadToolchain() }
+            .setNegativeButton("Skip") { _, _ -> loadDefaultProject() }
+            .show()
+    }
+
+    private fun downloadToolchain() {
+        val progressDialog = AlertDialog.Builder(this)
+            .setTitle("Downloading toolchain…")
+            .setMessage("Starting…")
+            .setCancelable(false)
+            .create()
+        progressDialog.show()
+
+        lifecycleScope.launch {
+            try {
+                ToolchainManager.download(this@MainActivity) { done, total, name ->
+                    runOnUiThread {
+                        val pct = if (total > 0) (done * 100 / total) else 0
+                        progressDialog.setMessage("$pct%  •  $name\n" +
+                            "${done / 1024 / 1024} MB / ${total / 1024 / 1024} MB")
+                    }
+                }
+                progressDialog.dismiss()
+                toast("Toolchain ready")
+                loadDefaultProject()
+            } catch (t: Throwable) {
+                progressDialog.dismiss()
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Download failed")
+                    .setMessage(t.message ?: "Unknown error")
+                    .setPositiveButton("Retry") { _, _ -> downloadToolchain() }
+                    .setNegativeButton("Skip") { _, _ -> loadDefaultProject() }
+                    .show()
+            }
+        }
+    }
+
+    // ─── PROJECT ──────────────────────────────────────────────────────────
+
+    private fun loadDefaultProject() {
+        val root = ProjectManager.ensureSampleProject(this)
+        loadProject(root)
+    }
+
+    private fun loadProject(root: File) {
+        currentProjectRoot = root
+        openFiles.clear()
+        binding.tabLayout.removeAllTabs()
+        currentFile = null
+        binding.editor.setText("")
+        adapter.setRoot(root)
+        binding.projectPath.text = root.absolutePath
+        supportActionBar?.subtitle = root.name
+        binding.drawer.closeDrawer(GravityCompat.START)
+    }
+
+    private fun promptNewProject() {
+        NewProjectDialog.show(this) { created ->
+            loadProject(created)
+        }
+    }
+
+    private fun promptBuild() {
+        val root = currentProjectRoot ?: run {
+            toast("No project loaded")
+            return
+        }
+        if (!ToolchainManager.isReady(this)) {
+            toast("Toolchain missing — reopen app to download")
+            return
+        }
+        val spec = BuildService.ProjectSpec(
+            name = root.name,
+            root = root,
+            packageName = guessPackage(root)
+        )
+        BuildDialog.show(this, lifecycleScope, spec)
+    }
+
+    private fun guessPackage(root: File): String {
+        return try {
+            val manifest = File(root, "AndroidManifest.xml")
+            val text = manifest.readText()
+            Regex("package=\"([^\"]+)\"").find(text)?.groupValues?.get(1)
+                ?: "com.aidex.user"
+        } catch (_: Throwable) { "com.aidex.user" }
+    }
+
+    private fun uriToFile(uri: Uri): File? {
+        // Try to resolve to a real path for tree URIs from the primary volume.
+        return try {
+            if (uri.scheme == "file") return File(uri.path!!)
+            val docId = android.provider.DocumentsContract.getTreeDocumentId(uri)
+                ?: return null
+            val split = docId.split(":")
+            val type = split[0]
+            val rel = if (split.size > 1) split[1] else ""
+            val base = when (type) {
+                "primary" -> Environment.getExternalStorageDirectory()
+                else -> File("/storage/$type")
+            }
+            File(base, rel)
+        } catch (_: Throwable) { null }
+    }
+
+    // ─── FILES ────────────────────────────────────────────────────────────
 
     private fun openFile(file: File) {
         if (openFiles.containsKey(file)) {
