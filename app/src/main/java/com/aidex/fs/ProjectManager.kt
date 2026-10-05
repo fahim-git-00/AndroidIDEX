@@ -11,69 +11,92 @@ object ProjectManager {
         return dir
     }
 
-    /** Creates (once) a small sample project so the app is useful immediately. */
+    /**
+     * Creates (once) a small buildable sample project. If the folder exists
+     * but is missing AndroidManifest.xml, wipes and recreates it — this
+     * handles migration from older AIDEX versions.
+     */
     fun ensureSampleProject(context: Context): File {
         val root = File(projectsRoot(context), "SampleProject")
+        val manifest = File(root, "AndroidManifest.xml")
+
+        if (root.exists() && !manifest.exists()) {
+            root.deleteRecursively()
+        }
         if (root.exists()) return root
 
-        File(root, "src/main/java/com/example").mkdirs()
-        File(root, "src/main/res/layout").mkdirs()
-        File(root, "src/main/res/values").mkdirs()
+        val srcDir = File(root, "src/com/example")
+        val resLayoutDir = File(root, "res/layout")
+        val resValuesDir = File(root, "res/values")
+        val resMipmapDir = File(root, "res/mipmap-anydpi-v26")
+        listOf(srcDir, resLayoutDir, resValuesDir, resMipmapDir).forEach { it.mkdirs() }
 
-        File(root, "README.md").writeText(
+        File(root, "AndroidManifest.xml").writeText(
             """
-            # SampleProject
+            <?xml version="1.0" encoding="utf-8"?>
+            <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+                package="com.example.sample">
 
-            - Tap a folder in the left drawer to expand it.
-            - Tap a file to open it in a new tab.
-            - Edit -> tap Save to persist.
-            - Copy Code copies the editor buffer to the clipboard.
-            - Any runtime crash pops up a copy-ready report.
+                <application
+                    android:allowBackup="true"
+                    android:label="@string/app_name"
+                    android:icon="@mipmap/ic_launcher"
+                    android:theme="@android:style/Theme.Material.Light">
+
+                    <activity android:name=".MainActivity"
+                        android:exported="true">
+                        <intent-filter>
+                            <action android:name="android.intent.action.MAIN" />
+                            <category android:name="android.intent.category.LAUNCHER" />
+                        </intent-filter>
+                    </activity>
+                </application>
+            </manifest>
             """.trimIndent()
         )
 
-        File(root, "src/main/java/com/example/Main.kt").writeText(
+        File(srcDir, "MainActivity.kt").writeText(
             """
-            package com.example
+            package com.example.sample
 
-            data class Greeting(val name: String) {
-                fun render(): String = "Hello, ${'$'}name!"
-            }
+            import android.app.Activity
+            import android.os.Bundle
+            import android.widget.TextView
 
-            fun main() {
-                val g = Greeting("AIDEX")
-                println(g.render())
-            }
-            """.trimIndent()
-        )
-
-        File(root, "src/main/java/com/example/Hello.java").writeText(
-            """
-            package com.example;
-
-            public class Hello {
-                public static void main(String[] args) {
-                    System.out.println("Hello from Java 17");
+            class MainActivity : Activity() {
+                override fun onCreate(savedInstanceState: Bundle?) {
+                    super.onCreate(savedInstanceState)
+                    val tv = TextView(this).apply {
+                        text = "Hello from AIDEX!"
+                        textSize = 22f
+                    }
+                    setContentView(tv)
                 }
             }
             """.trimIndent()
         )
 
-        File(root, "src/main/res/layout/activity_sample.xml").writeText(
+        File(resValuesDir, "strings.xml").writeText(
             """
             <?xml version="1.0" encoding="utf-8"?>
-            <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/title"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Sample Layout" />
-            </LinearLayout>
+            <resources>
+                <string name="app_name">SampleProject</string>
+            </resources>
             """.trimIndent()
+        )
+
+        File(resMipmapDir, "ic_launcher.xml").writeText(
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+                <background android:drawable="@android:color/white"/>
+                <foreground android:drawable="@android:color/holo_blue_light"/>
+            </adaptive-icon>
+            """.trimIndent()
+        )
+
+        File(root, "README.md").writeText(
+            "# SampleProject\n\nTap **Build** in the toolbar to compile to APK."
         )
 
         return root
