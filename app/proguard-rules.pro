@@ -1,0 +1,3 @@
+-keep class com.aidex.** { *; }
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
