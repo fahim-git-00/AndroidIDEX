@@ -98,20 +98,19 @@ class MainActivity : AppCompatActivity() {
     // ─── TOOLCHAIN ────────────────────────────────────────────────────────
 
     private fun ensureToolchainThenLoadDefault() {
-        if (ToolchainManager.isReady(this)) {
-            loadDefaultProject()
-            return
-        }
+        loadDefaultProject()
+        if (ToolchainManager.isReady(this)) return
         AlertDialog.Builder(this)
-            .setTitle("First-time setup")
+            .setTitle("Toolchain required")
             .setMessage(
-                "AIDEX needs to download ~130 MB of compiler toolchain " +
-                "(Kotlin, ECJ, R8, aapt2, android.jar). " +
+                "AIDEX must download ~130 MB of compiler toolchain " +
+                "(Kotlin 2.0, ECJ, R8, apksig, android.jar).\n\n" +
+                "You can still edit files without it, but Build requires it.\n\n" +
                 "Connect to Wi-Fi and tap Download."
             )
             .setCancelable(false)
             .setPositiveButton("Download") { _, _ -> downloadToolchain() }
-            .setNegativeButton("Skip") { _, _ -> loadDefaultProject() }
+            .setNegativeButton("Later") { _, _ -> }
             .show()
     }
 
@@ -178,7 +177,15 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (!ToolchainManager.isReady(this)) {
-            toast("Toolchain missing — reopen app to download")
+            AlertDialog.Builder(this)
+                .setTitle("Toolchain required")
+                .setMessage(
+                    "Compiler jars are missing. Download them now?\n\n" +
+                    "This is a one-time ~130 MB download."
+                )
+                .setPositiveButton("Download") { _, _ -> downloadToolchain() }
+                .setNegativeButton("Cancel", null)
+                .show()
             return
         }
         val spec = BuildService.ProjectSpec(
