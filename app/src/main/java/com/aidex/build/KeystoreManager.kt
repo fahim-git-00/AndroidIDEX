@@ -2,6 +2,10 @@ package com.aidex.build
 
 import android.content.Context
 import android.content.SharedPreferences
+import org.bouncycastle.asn1.x500.X500Name
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -18,8 +22,8 @@ import java.util.Date
  * Debug mode: auto-generates filesDir/toolchain/aidex-debug.keystore on first
  * use. Alias "aidex", password "android". Same behaviour as Android Studio.
  *
- * Custom mode: user supplies a .jks / .keystore file via SAF plus alias and
- * password. The chosen path + credentials are persisted in SharedPreferences.
+ * Custom mode: user supplies a .jks / .keystore file plus alias and password.
+ * The chosen path + credentials are persisted in SharedPreferences.
  */
 object KeystoreManager {
 
@@ -129,8 +133,10 @@ object KeystoreManager {
         return runCatching {
             val ks = KeyStore.getInstance(guessStoreType(creds.keystoreFile))
             FileInputStream(creds.keystoreFile).use { ks.load(it, creds.storePassword) }
-            val key = ks.getKey(creds.alias, creds.keyPassword) as? PrivateKey ?: return false
-            val cert = ks.getCertificate(creds.alias) as? X509Certificate ?: return false
+            val key = ks.getKey(creds.alias, creds.keyPassword) as? PrivateKey
+                ?: return false
+            val cert = ks.getCertificate(creds.alias) as? X509Certificate
+                ?: return false
             key.algorithm.isNotEmpty() && cert.subjectX500Principal.name.isNotEmpty()
         }.getOrDefault(false)
     }
@@ -139,28 +145,26 @@ object KeystoreManager {
         if (f.extension.lowercase() == "jks") "JKS" else "PKCS12"
 }
 
-/** Minimal self-signed X.509 generator used only for the debug keystore. */
+/** Self-signed X.509 generator using BouncyCastle (Android-compatible). */
 internal object SelfSignedCert {
     fun generate(kp: java.security.KeyPair, dn: String): X509Certificate {
         val now = System.currentTimeMillis()
-        val from = Date(now - 24L * 60 * 60 * 1000)
-        val to = Date(now + 30L * 365 * 24 * 60 * 60 * 1000)
-        val info = sun.security.x509.X500Name(dn)
-        val certInfo = sun.security.x509.X509CertInfo().apply {
-            set(sun.security.x509.X509CertInfo.VALIDITY,
-                sun.security.x509.CertificateValidity(from, to))
-            set(sun.security.x509.X509CertInfo.SERIAL_NUMBER,
-                sun.security.x509.CertificateSerialNumber(BigInteger.valueOf(now)))
-            set(sun.security.x509.X509CertInfo.SUBJECT, info)
-            set(sun.security.x509.X509CertInfo.ISSUER, info)
-            set(sun.security.x509.X509CertInfo.KEY,
-                sun.security.x509.CertificateX509Key(kp.public))
-            set(sun.security.x509.X509CertInfo.ALGORITHM_ID,
-                sun.security.x509.CertificateAlgorithmId(
-                    sun.security.x509.AlgorithmId.get("SHA256withRSA")))
-        }
-        val cert = sun.security.x509.X509CertImpl(certInfo)
-        cert.sign(kp.private, "SHA256withRSA")
-        return cert
+        val notBefore = Date(now - 24L * 60 * 60 * 1000)
+        val notAfter = Date(now + 30L * 365 * 24 * 60 * 60 * 1000)
+
+        val subject = X500Name(dn)
+        val serial = BigInteger.valueOf(now)
+
+        val builder = JcaX509v3CertificateBuilder(
+            subject,
+            serial,
+            notBefore,
+            notAfter,
+            subject,
+            kp.public
+        )
+        val signer = JcaContentSignerBuilder("SHA256withRSA").build(kp.private)
+        val holder = builder.build(signer)
+        return JcaX509CertificateConverter().getCertificate(holder)
     }
 }

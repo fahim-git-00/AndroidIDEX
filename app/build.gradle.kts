@@ -41,7 +41,8 @@ android {
             "META-INF/LICENSE*",
             "META-INF/NOTICE*",
             "META-INF/DEPENDENCIES",
-            "META-INF/INDEX.LIST"
+            "META-INF/INDEX.LIST",
+            "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
         )
     }
 }
@@ -55,4 +56,8 @@ dependencies {
     implementation("androidx.drawerlayout:drawerlayout:1.2.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // BouncyCastle — used for self-signed debug keystore generation.
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
 }

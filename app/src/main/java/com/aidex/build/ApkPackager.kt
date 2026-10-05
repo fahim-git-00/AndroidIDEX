@@ -1,6 +1,7 @@
 package com.aidex.build
 
 import java.io.File
+import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -26,35 +27,42 @@ object ApkPackager {
         if (outputApk.exists()) outputApk.delete()
         outputApk.parentFile?.mkdirs()
 
-        ZipOutputStream(outputApk.outputStream().buffered()).use { zipOut ->
-            val written = mutableSetOf<String>()
+        val written = mutableSetOf<String>()
+        val buffer = ByteArray(64 * 1024)
 
-            // 1. Copy everything from the skeleton APK.
+        ZipOutputStream(outputApk.outputStream().buffered()).use { zipOut ->
+            // 1. Copy every entry from the skeleton APK.
             ZipInputStream(skeletonApk.inputStream().buffered()).use { zipIn ->
                 var entry: ZipEntry? = zipIn.nextEntry
-                val buf = ByteArray(64 * 1024)
                 while (entry != null) {
                     val name = entry.name
-                    if (name !in written && !entry.isDirectory) {
-                        zipOut.putNextEntry(ZipEntry(name).apply {
-                            method = if (name.endsWith(".png") ||
-                                         name.endsWith(".jpg") ||
-                                         name.endsWith(".jpeg") ||
-                                         name.endsWith(".so")) ZipEntry.STORED else ZipEntry.DEFLATED
-                            if (method == ZipEntry.STORED) {
-                                val data = zipIn.readBytes()
+                    if (!entry.isDirectory && name !in written) {
+                        val shouldStore = name.endsWith(".png", true) ||
+                                name.endsWith(".jpg", true) ||
+                                name.endsWith(".jpeg", true) ||
+                                name.endsWith(".so", true)
+                        if (shouldStore) {
+                            val data = zipIn.readBytes()
+                            val crc = CRC32().apply { update(data) }
+                            val out = ZipEntry(name).apply {
+                                method = ZipEntry.STORED
                                 size = data.size.toLong()
                                 compressedSize = data.size.toLong()
-                                crc = java.util.zip.CRC32().apply { update(data) }.value
-                                zipOut.putNextEntry(this)
-                                zipOut.write(data)
-                                zipOut.closeEntry()
-                                entry = zipIn.nextEntry
-                                return@while
+                                this.crc = crc.value
                             }
-                        })
-                        zipIn.copyTo(zipOut, buf.size)
-                        zipOut.closeEntry()
+                            zipOut.putNextEntry(out)
+                            zipOut.write(data)
+                            zipOut.closeEntry()
+                        } else {
+                            zipOut.putNextEntry(ZipEntry(name).apply {
+                                method = ZipEntry.DEFLATED
+                            })
+                            var n: Int
+                            while (zipIn.read(buffer).also { n = it } > 0) {
+                                zipOut.write(buffer, 0, n)
+                            }
+                            zipOut.closeEntry()
+                        }
                         written.add(name)
                     }
                     zipIn.closeEntry()
@@ -62,13 +70,18 @@ object ApkPackager {
                 }
             }
 
-            // 2. Add classes.dex.
+            // 2. Add classes.dex (and classes2.dex, etc.).
             dexFiles.sortedBy { it.name }.forEach { dex ->
                 val name = dex.name
                 if (name in written) return@forEach
                 BuildLogger.log("  + $name (${dex.length() / 1024} KB)")
                 zipOut.putNextEntry(ZipEntry(name).apply { method = ZipEntry.DEFLATED })
-                dex.inputStream().use { it.copyTo(zipOut) }
+                dex.inputStream().use { input ->
+                    var n: Int
+                    while (input.read(buffer).also { n = it } > 0) {
+                        zipOut.write(buffer, 0, n)
+                    }
+                }
                 zipOut.closeEntry()
                 written.add(name)
             }
