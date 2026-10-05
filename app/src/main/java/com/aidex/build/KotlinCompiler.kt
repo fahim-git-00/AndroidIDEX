@@ -6,12 +6,6 @@ import java.io.File
 import java.io.PrintStream
 import java.net.URLClassLoader
 
-/**
- * In-process Kotlin compiler invocation.
- *
- * Loads kotlin-compiler-embeddable.jar via URLClassLoader and calls the
- * K2JVMCompiler entry point reflectively, capturing stdout/stderr.
- */
 object KotlinCompiler {
 
     fun compile(
@@ -23,7 +17,16 @@ object KotlinCompiler {
         val tc = ToolchainManager.toolchainDir(context)
         outputDir.mkdirs()
 
-        val compilerJars = listOf(
+        // 1. List what's actually in the toolchain dir.
+        BuildLogger.section("TOOLCHAIN INSPECTION")
+        BuildLogger.log("Directory: ${tc.absolutePath}")
+        BuildLogger.log("Exists: ${tc.exists()}")
+        val allFiles = tc.listFiles()?.sortedBy { it.name } ?: emptyList()
+        allFiles.forEach { f ->
+            BuildLogger.logRaw("  ${f.name}  (${f.length() / 1024} KB)")
+        }
+
+        val needed = listOf(
             "kotlin-compiler-embeddable.jar",
             "kotlin-stdlib.jar",
             "kotlin-reflect.jar",
@@ -31,15 +34,75 @@ object KotlinCompiler {
             "kotlin-daemon-embeddable.jar",
             "trove4j.jar",
             "annotations.jar"
-        ).map { File(tc, it) }.filter { it.exists() }
+        )
+        val compilerJars = mutableListOf<File>()
+        needed.forEach { name ->
+            val f = File(tc, name)
+            val status = when {
+                !f.exists() -> "MISSING"
+                f.length() < 100_000 -> "TOO SMALL (${f.length()} B)"
+                else -> "OK (${f.length() / 1024} KB)"
+            }
+            BuildLogger.log("  $status  $name")
+            if (f.exists() && f.length() >= 100_000) compilerJars.add(f)
+        }
 
-        require(compilerJars.isNotEmpty()) { "Kotlin compiler jars missing." }
+        if (compilerJars.size < needed.size) {
+            throw RuntimeException(
+                "Kotlin toolchain incomplete: ${compilerJars.size}/${needed.size} jars OK. " +
+                "Delete app data and re-download."
+            )
+        }
 
         val allJars = compilerJars + classpath
+        val parent = KotlinCompiler::class.java.classLoader
+        BuildLogger.log("Parent classloader: ${parent?.javaClass?.name ?: "null"}")
+
         val loader = URLClassLoader(
             allJars.map { it.toURI().toURL() }.toTypedArray(),
-            ClassLoader.getSystemClassLoader().parent
+            parent
         )
+
+        // 2. Try to find the class and show ALL causes.
+        BuildLogger.log("Loading K2JVMCompiler...")
+        val k2Class: Class<*> = try {
+            Class.forName("org.jetbrains.kotlin.cli.jvm.K2JVMCompiler", true, loader)
+        } catch (t: Throwable) {
+            var cause: Throwable? = t
+            while (cause != null) {
+                BuildLogger.log("CAUSE: ${cause.javaClass.name}")
+                BuildLogger.log("  msg: ${cause.message}")
+                cause = cause.cause
+            }
+            // 3. Try a simpler class from the same jar to isolate the problem.
+            BuildLogger.log("Diagnostic: trying to load kotlin.Unit from same loader...")
+            try {
+                Class.forName("kotlin.Unit", false, loader)
+                BuildLogger.log("  kotlin.Unit: LOADED OK")
+            } catch (e: Throwable) {
+                BuildLogger.log("  kotlin.Unit FAILED: ${e.javaClass.simpleName}: ${e.message}")
+            }
+            BuildLogger.log("Diagnostic: trying kotlin.jvm.internal.Intrinsics...")
+            try {
+                Class.forName("kotlin.jvm.internal.Intrinsics", false, loader)
+                BuildLogger.log("  Intrinsics: LOADED OK")
+            } catch (e: Throwable) {
+                BuildLogger.log("  Intrinsics FAILED: ${e.javaClass.simpleName}: ${e.message}")
+            }
+            // 4. Try loading from the compiler jar directly without the others.
+            BuildLogger.log("Diagnostic: isolating compiler jar only...")
+            val compilerOnlyLoader = URLClassLoader(
+                arrayOf(File(tc, "kotlin-compiler-embeddable.jar").toURI().toURL()),
+                parent
+            )
+            try {
+                Class.forName("org.jetbrains.kotlin.cli.jvm.K2JVMCompiler", false, compilerOnlyLoader)
+                BuildLogger.log("  K2JVMCompiler from isolated loader: LOADED OK")
+            } catch (e: Throwable) {
+                BuildLogger.log("  Isolated load FAILED: ${e.javaClass.simpleName}: ${e.message}")
+            }
+            throw RuntimeException("Kotlin compiler class not loadable", t)
+        }
 
         val srcFiles = srcDirs
             .filter { it.exists() }
@@ -53,10 +116,6 @@ object KotlinCompiler {
 
         BuildLogger.log("Kotlin: compiling ${srcFiles.size} files")
 
-        val k2Class = Class.forName(
-            "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler",
-            true, loader
-        )
         val compiler = k2Class.getDeclaredConstructor().newInstance()
 
         val freeArgs = mutableListOf<String>()
@@ -64,7 +123,8 @@ object KotlinCompiler {
         freeArgs += "-jvm-target"; freeArgs += "17"
         freeArgs += "-no-stdlib"; freeArgs += "-no-reflect"
         freeArgs += "-nowarn"
-        freeArgs += "-classpath"; freeArgs += classpath.joinToString(":") { it.absolutePath }
+        freeArgs += "-classpath"
+        freeArgs += classpath.joinToString(":") { it.absolutePath }
         srcFiles.forEach { freeArgs += it.absolutePath }
 
         val errBuf = ByteArrayOutputStream()
