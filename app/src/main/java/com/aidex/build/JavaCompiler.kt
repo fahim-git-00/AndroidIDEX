@@ -1,9 +1,9 @@
 package com.aidex.build
 
 import android.content.Context
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.PrintStream
+import java.io.PrintWriter
+import java.io.StringWriter
 import java.net.URLClassLoader
 
 object JavaCompiler {
@@ -38,10 +38,12 @@ object JavaCompiler {
 
         BuildLogger.log("Java: compiling ${javaFiles.size} files")
 
-        val mainClass = Class.forName(
-            "org.eclipse.jdt.internal.compiler.batch.Main", true, loader
+        // BatchCompiler is the public embedded entry point. It avoids
+        // referencing CLI-only classes like java.util.logging.Handler.
+        val batchCls = Class.forName(
+            "org.eclipse.jdt.core.compiler.batch.BatchCompiler",
+            true, loader
         )
-        val main = mainClass.getDeclaredConstructor().newInstance()
 
         val args = mutableListOf<String>()
         args += "-17"
@@ -52,43 +54,55 @@ object JavaCompiler {
         args += classpath.joinToString(":") { it.absolutePath }
         javaFiles.forEach { args += it.absolutePath }
 
-        val errBuf = ByteArrayOutputStream()
-        val outBuf = ByteArrayOutputStream()
-        val prevErr = System.err
-        val prevOut = System.out
+        val outWriter = StringWriter()
+        val errWriter = StringWriter()
+
+        // static boolean compile(String commandLine, PrintWriter out, PrintWriter err, CompilationProgress progress)
+        val compileMethod = batchCls.getMethod(
+            "compile",
+            String::class.java,
+            PrintWriter::class.java,
+            PrintWriter::class.java,
+            Class.forName("org.eclipse.jdt.core.compiler.CompilationProgress")
+        )
+
+        val cmdLine = args.joinToString(" ")
+        BuildLogger.log("Java: cmd = $cmdLine")
+
+        val success: Boolean
+        val outPw = PrintWriter(outWriter)
+        val errPw = PrintWriter(errWriter)
         try {
-            System.setErr(PrintStream(errBuf, true, "UTF-8"))
-            System.setOut(PrintStream(outBuf, true, "UTF-8"))
-
-            val compileMethod = mainClass.getMethod(
-                "compile",
-                Array<String>::class.java
-            )
-            val result = compileMethod.invoke(main, args.toTypedArray())
-
-            dumpStream("Java stdout", outBuf)
-            dumpStream("Java stderr", errBuf)
-
-            val failed = when (result) {
-                is Boolean -> !result
-                is Int -> result != 0
-                else -> false
-            }
-            if (failed) {
-                val msg = errBuf.toString("UTF-8").ifBlank { "ECJ returned failure" }
-                throw RuntimeException("Java compilation failed:\n$msg")
-            }
+            success = compileMethod.invoke(
+                null,
+                cmdLine,
+                outPw,
+                errPw,
+                null
+            ) as Boolean
+        } catch (t: Throwable) {
+            val cause = t.cause ?: t
+            BuildLogger.section("Java exception")
+            cause.stackTrace.take(20).forEach { BuildLogger.logRaw("  at $it") }
+            throw RuntimeException("ECJ invocation failed: ${cause.message}", cause)
         } finally {
-            System.setErr(prevErr)
-            System.setOut(prevOut)
+            outPw.flush()
+            errPw.flush()
         }
-    }
 
-    private fun dumpStream(label: String, buf: ByteArrayOutputStream) {
-        val text = buf.toString("UTF-8").trim()
-        if (text.isNotEmpty()) {
-            BuildLogger.section(label)
-            text.lineSequence().forEach { BuildLogger.logRaw(it) }
+        val outText = outWriter.toString().trim()
+        val errText = errWriter.toString().trim()
+        if (outText.isNotEmpty()) {
+            BuildLogger.section("Java stdout")
+            outText.lineSequence().forEach { BuildLogger.logRaw(it) }
+        }
+        if (errText.isNotEmpty()) {
+            BuildLogger.section("Java stderr")
+            errText.lineSequence().forEach { BuildLogger.logRaw(it) }
+        }
+
+        if (!success) {
+            throw RuntimeException("Java compilation failed (see log above).")
         }
     }
 }
