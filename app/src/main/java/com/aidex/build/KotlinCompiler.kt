@@ -35,22 +35,33 @@ object KotlinCompiler {
             "trove4j.jar",
             "annotations.jar"
         )
+        // Per-jar minimum size floors (bytes). Small enough for legit small jars.
+        val minSizes = mapOf(
+            "kotlin-compiler-embeddable.jar" to 40_000_000L,
+            "kotlin-stdlib.jar" to 1_000_000L,
+            "kotlin-reflect.jar" to 2_000_000L,
+            "kotlin-script-runtime.jar" to 30_000L,
+            "kotlin-daemon-embeddable.jar" to 200_000L,
+            "trove4j.jar" to 400_000L,
+            "annotations.jar" to 10_000L
+        )
         val compilerJars = mutableListOf<File>()
         needed.forEach { name ->
             val f = File(tc, name)
+            val min = minSizes[name] ?: 100_000L
             val status = when {
                 !f.exists() -> "MISSING"
-                f.length() < 100_000 -> "TOO SMALL (${f.length()} B)"
+                f.length() < min -> "TOO SMALL (${f.length()} B, min $min)"
                 else -> "OK (${f.length() / 1024} KB)"
             }
             BuildLogger.log("  $status  $name")
-            if (f.exists() && f.length() >= 100_000) compilerJars.add(f)
+            if (f.exists() && f.length() >= min) compilerJars.add(f)
         }
 
         if (compilerJars.size < needed.size) {
             throw RuntimeException(
                 "Kotlin toolchain incomplete: ${compilerJars.size}/${needed.size} jars OK. " +
-                "Delete app data and re-download."
+                "Long-press toolbar -> Clear toolchain, then reopen app to re-download."
             )
         }
 

@@ -7,10 +7,6 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
-/**
- * Downloads and caches the on-device compile toolchain into filesDir/toolchain.
- * On first launch this fetches ~130 MB from Maven Central / Google Maven.
- */
 object ToolchainManager {
 
     data class Artifact(
@@ -24,7 +20,7 @@ object ToolchainManager {
         Artifact(
             "Kotlin compiler 1.9.24",
             "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-compiler-embeddable/1.9.24/kotlin-compiler-embeddable-1.9.24.jar",
-            "kotlin-compiler-embeddable.jar", 55_000_000L
+            "kotlin-compiler-embeddable.jar", 58_000_000L
         ),
         Artifact(
             "Kotlin stdlib 1.9.24",
@@ -34,47 +30,47 @@ object ToolchainManager {
         Artifact(
             "Kotlin reflect 1.9.24",
             "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-reflect/1.9.24/kotlin-reflect-1.9.24.jar",
-            "kotlin-reflect.jar", 3_000_000L
+            "kotlin-reflect.jar", 3_200_000L
         ),
         Artifact(
             "Kotlin script runtime 1.9.24",
-            "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-script-runtime/1.9.24/kotlin-script-runtime-1.9.24.jar",
-            "kotlin-script-runtime.jar", 200_000L
+            "https://repo.maven.apache.org/maven2/org/jetbrains/kotlin/kotlin-script-runtime/1.9.24/kotlin-script-runtime-1.9.24.jar",
+            "kotlin-script-runtime.jar", 43_000L
         ),
         Artifact(
             "Kotlin daemon embeddable 1.9.24",
             "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-daemon-embeddable/1.9.24/kotlin-daemon-embeddable-1.9.24.jar",
-            "kotlin-daemon-embeddable.jar", 200_000L
+            "kotlin-daemon-embeddable.jar", 400_000L
         ),
         Artifact(
-            "Trove4j (Kotlin dep)",
+            "Trove4j",
             "https://repo1.maven.org/maven2/org/jetbrains/intellij/deps/trove4j/1.0.20200330/trove4j-1.0.20200330.jar",
-            "trove4j.jar", 500_000L
+            "trove4j.jar", 600_000L
         ),
         Artifact(
-            "Annotations 13.0 (Kotlin dep)",
+            "Annotations 13.0",
             "https://repo1.maven.org/maven2/org/jetbrains/annotations/13.0/annotations-13.0.jar",
-            "annotations.jar", 20_000L
+            "annotations.jar", 17_500L
         ),
         Artifact(
             "ECJ 3.39.0",
             "https://repo1.maven.org/maven2/org/eclipse/jdt/ecj/3.39.0/ecj-3.39.0.jar",
-            "ecj.jar", 3_500_000L
+            "ecj.jar", 3_300_000L
         ),
         Artifact(
             "R8 8.7.18",
             "https://maven.google.com/com/android/tools/r8/8.7.18/r8-8.7.18.jar",
-            "r8.jar", 10_000_000L
+            "r8.jar", 17_000_000L
         ),
         Artifact(
             "apksig 8.7.2",
             "https://maven.google.com/com/android/tools/build/apksig/8.7.2/apksig-8.7.2.jar",
-            "apksig.jar", 250_000L
+            "apksig.jar", 500_000L
         ),
         Artifact(
-            "Android platform API 35",
-            "https://github.com/Sable/android-platforms/raw/master/android-35/android.jar",
-            "android.jar", 55_000_000L
+            "Android platform API 34",
+            "https://github.com/Sable/android-platforms/raw/master/android-34/android.jar",
+            "android.jar", 26_000_000L
         )
     )
 
@@ -84,22 +80,38 @@ object ToolchainManager {
         return dir
     }
 
-    fun isReady(context: Context): Boolean =
-        ARTIFACTS.all { File(toolchainDir(context), it.fileName).let { f ->
-            f.exists() && f.length() > 10_000
-        } }
+    // Size floors (bytes) — anything below these is a corrupt/partial download.
+    private val MIN_SIZES = mapOf(
+        "kotlin-compiler-embeddable.jar" to 40_000_000L,
+        "kotlin-stdlib.jar" to 1_000_000L,
+        "kotlin-reflect.jar" to 2_000_000L,
+        "kotlin-script-runtime.jar" to 30_000L,
+        "kotlin-daemon-embeddable.jar" to 200_000L,
+        "trove4j.jar" to 400_000L,
+        "annotations.jar" to 10_000L,
+        "ecj.jar" to 2_500_000L,
+        "r8.jar" to 8_000_000L,
+        "apksig.jar" to 200_000L,
+        "android.jar" to 20_000_000L
+    )
 
-    fun missing(context: Context): List<Artifact> =
-        ARTIFACTS.filter { File(toolchainDir(context), it.fileName).let { f ->
-            !f.exists() || f.length() < 10_000
-        } }
+    fun isReady(context: Context): Boolean {
+        return ARTIFACTS.all { a ->
+            val f = File(toolchainDir(context), a.fileName)
+            val min = MIN_SIZES[a.fileName] ?: 100_000L
+            f.exists() && f.length() >= min
+        }
+    }
+
+    fun missing(context: Context): List<Artifact> = ARTIFACTS.filter { a ->
+        val f = File(toolchainDir(context), a.fileName)
+        val min = MIN_SIZES[a.fileName] ?: 100_000L
+        !f.exists() || f.length() < min
+    }
 
     fun pathOf(context: Context, fileName: String): File =
         File(toolchainDir(context), fileName)
 
-    /**
-     * Downloads all missing artifacts. Reports progress per-file via [onProgress].
-     */
     suspend fun download(
         context: Context,
         onProgress: (downloadedBytes: Long, totalBytes: Long, currentName: String) -> Unit
@@ -118,6 +130,17 @@ object ToolchainManager {
             downloadFile(artifact.url, temp) { bytesRead ->
                 onProgress(completed + bytesRead, total, artifact.name)
             }
+
+            // Validate size after download.
+            val min = MIN_SIZES[artifact.fileName] ?: 100_000L
+            if (temp.length() < min) {
+                temp.delete()
+                throw RuntimeException(
+                    "Downloaded ${artifact.fileName} is ${temp.length()} B, " +
+                    "expected >= $min B. URL may be stale."
+                )
+            }
+
             if (target.exists()) target.delete()
             temp.renameTo(target)
             completed += artifact.approxBytes
@@ -129,7 +152,7 @@ object ToolchainManager {
         val url = URL(urlStr)
         val conn = (url.openConnection() as HttpURLConnection).apply {
             connectTimeout = 30_000
-            readTimeout = 30_000
+            readTimeout = 60_000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "AIDEX/1.0")
         }
