@@ -65,10 +65,17 @@ object BuildService {
                 "android.jar", "kotlin-stdlib.jar", "kotlin-reflect.jar", "annotations.jar"
             ).map { File(tc, it) }.filter { it.exists() }
 
-            // ── KOTLIN ───────────────────────────────────────────────────
+            // ── KOTLIN (skipped — no Android-compatible compiler available) ──
             onStage(BuildStage.KOTLIN)
             BuildLogger.section("KOTLIN")
-            KotlinCompiler.compile(context, listOf(srcDir), classpath, classesDir)
+            val ktCount = srcDir.walkTopDown()
+                .count { it.isFile && it.extension.equals("kt", true) }
+            if (ktCount > 0) {
+                BuildLogger.log("Skipping $ktCount Kotlin file(s) — not compiled in this build.")
+                BuildLogger.log("Use .java files for now. Kotlin support coming via proot.")
+            } else {
+                BuildLogger.log("No .kt files, nothing to skip.")
+            }
 
             // ── JAVA ─────────────────────────────────────────────────────
             onStage(BuildStage.JAVA)

@@ -11,11 +11,6 @@ object ProjectManager {
         return dir
     }
 
-    /**
-     * Creates (once) a small buildable sample project. If the folder exists
-     * but is missing AndroidManifest.xml, wipes and recreates it — this
-     * handles migration from older AIDEX versions.
-     */
     fun ensureSampleProject(context: Context): File {
         val root = File(projectsRoot(context), "SampleProject")
         val manifest = File(root, "AndroidManifest.xml")
@@ -25,7 +20,7 @@ object ProjectManager {
         }
         if (root.exists()) return root
 
-        val srcDir = File(root, "src/com/example")
+        val srcDir = File(root, "src/com/example/sample")
         val resLayoutDir = File(root, "res/layout")
         val resValuesDir = File(root, "res/values")
         val resMipmapDir = File(root, "res/mipmap-anydpi-v26")
@@ -40,7 +35,6 @@ object ProjectManager {
                 <application
                     android:allowBackup="true"
                     android:label="@string/app_name"
-                    android:icon="@mipmap/ic_launcher"
                     android:theme="@android:style/Theme.Material.Light">
 
                     <activity android:name=".MainActivity"
@@ -55,22 +49,22 @@ object ProjectManager {
             """.trimIndent()
         )
 
-        File(srcDir, "MainActivity.kt").writeText(
+        File(srcDir, "MainActivity.java").writeText(
             """
-            package com.example.sample
+            package com.example.sample;
 
-            import android.app.Activity
-            import android.os.Bundle
-            import android.widget.TextView
+            import android.app.Activity;
+            import android.os.Bundle;
+            import android.widget.TextView;
 
-            class MainActivity : Activity() {
-                override fun onCreate(savedInstanceState: Bundle?) {
-                    super.onCreate(savedInstanceState)
-                    val tv = TextView(this).apply {
-                        text = "Hello from AIDEX!"
-                        textSize = 22f
-                    }
-                    setContentView(tv)
+            public class MainActivity extends Activity {
+                @Override
+                protected void onCreate(Bundle savedInstanceState) {
+                    super.onCreate(savedInstanceState);
+                    TextView tv = new TextView(this);
+                    tv.setText("Hello from AIDEX!");
+                    tv.setTextSize(22f);
+                    setContentView(tv);
                 }
             }
             """.trimIndent()
@@ -96,7 +90,7 @@ object ProjectManager {
         )
 
         File(root, "README.md").writeText(
-            "# SampleProject\n\nTap **Build** in the toolbar to compile to APK."
+            "# SampleProject\n\nA minimal Java + XML Android app.\n\nTap **Build** to compile to APK."
         )
 
         return root

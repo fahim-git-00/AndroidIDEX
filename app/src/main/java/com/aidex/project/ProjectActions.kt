@@ -58,23 +58,23 @@ object ProjectActions {
             """.trimIndent()
         )
 
-        // MainActivity.kt
-        File(srcDir, "MainActivity.kt").writeText(
+        // MainActivity.java
+        File(srcDir, "MainActivity.java").writeText(
             """
-            package $pkg
+            package $pkg;
 
-            import android.app.Activity
-            import android.os.Bundle
-            import android.widget.TextView
+            import android.app.Activity;
+            import android.os.Bundle;
+            import android.widget.TextView;
 
-            class MainActivity : Activity() {
-                override fun onCreate(savedInstanceState: Bundle?) {
-                    super.onCreate(savedInstanceState)
-                    val tv = TextView(this).apply {
-                        text = "Hello from $name!"
-                        textSize = 22f
-                    }
-                    setContentView(tv)
+            public class MainActivity extends Activity {
+                @Override
+                protected void onCreate(Bundle savedInstanceState) {
+                    super.onCreate(savedInstanceState);
+                    TextView tv = new TextView(this);
+                    tv.setText("Hello from $name!");
+                    tv.setTextSize(22f);
+                    setContentView(tv);
                 }
             }
             """.trimIndent()
