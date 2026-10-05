@@ -22,28 +22,28 @@ object ToolchainManager {
 
     private val ARTIFACTS = listOf(
         Artifact(
-            "Kotlin compiler 2.0.21",
-            "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-compiler-embeddable/2.0.21/kotlin-compiler-embeddable-2.0.21.jar",
+            "Kotlin compiler 1.9.24",
+            "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-compiler-embeddable/1.9.24/kotlin-compiler-embeddable-1.9.24.jar",
             "kotlin-compiler-embeddable.jar", 55_000_000L
         ),
         Artifact(
-            "Kotlin stdlib 2.0.21",
-            "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/2.0.21/kotlin-stdlib-2.0.21.jar",
+            "Kotlin stdlib 1.9.24",
+            "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/1.9.24/kotlin-stdlib-1.9.24.jar",
             "kotlin-stdlib.jar", 1_700_000L
         ),
         Artifact(
-            "Kotlin reflect 2.0.21",
-            "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-reflect/2.0.21/kotlin-reflect-2.0.21.jar",
+            "Kotlin reflect 1.9.24",
+            "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-reflect/1.9.24/kotlin-reflect-1.9.24.jar",
             "kotlin-reflect.jar", 3_000_000L
         ),
         Artifact(
-            "Kotlin script runtime 2.0.21",
-            "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-script-runtime/2.0.21/kotlin-script-runtime-2.0.21.jar",
+            "Kotlin script runtime 1.9.24",
+            "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-script-runtime/1.9.24/kotlin-script-runtime-1.9.24.jar",
             "kotlin-script-runtime.jar", 200_000L
         ),
         Artifact(
-            "Kotlin daemon embeddable 2.0.21",
-            "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-daemon-embeddable/2.0.21/kotlin-daemon-embeddable-2.0.21.jar",
+            "Kotlin daemon embeddable 1.9.24",
+            "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-daemon-embeddable/1.9.24/kotlin-daemon-embeddable-1.9.24.jar",
             "kotlin-daemon-embeddable.jar", 200_000L
         ),
         Artifact(
